@@ -1,93 +1,70 @@
-from typing import Annotated
-
-from PIL import Image
+import numpy
 import numpy as np
-import numpy.typing as npt
+from tqdm import tqdm
+
+def normalize(x):
+    return x / np.linalg.norm(x)
+
+def generate_transpose(theta:float,phi:float,mode='r')->np.array:
+    if mode == 'd':
+        theta = np.radians(theta)
+        phi = np.radians(phi)
+    # Rotation matrix around the y-axis (for theta)
+    R_y = np.array([[np.cos(theta), 0, np.sin(theta)],
+                    [0, 1, 0],
+                    [-np.sin(theta), 0, np.cos(theta)]])
+
+    # Rotation matrix around the x-axis (for phi)
+    R_x = np.array([[1, 0, 0],
+                    [0, np.cos(phi), np.sin(phi)],
+                    [0, -np.sin(phi), np.cos(phi)]])
+
+    # The total rotation matrix is the product of the two rotations
+    R = R_y @ R_x  # Apply z-rotation followed by y-rotation
+    return R
+
+def intersect_color(scene, origin:numpy.array, direction:numpy.array, intensity:float, light_point, light_color, ambient):
+    min_distance = np.inf
+    for obj in scene.objects:
+        current_distance = obj.intersect(origin, direction)
+        if current_distance < min_distance:
+            min_distance, nearest_object = current_distance, obj
+    if (min_distance == np.inf) or (intensity < 0.01):
+        return np.array([0., 0., 0.])
+    obj = nearest_object
+    intersect = origin + direction * min_distance
+    color = obj.get_color(intersect)
+    normal = obj.get_normal(intersect)
 
 
-class Renderer:
-    def __init__(self, height:int, width:int, init_position = np.zeros(3), init_orient = np.zeros(3), do_blur = False,
-                 to_ratio = True, reflection = True):
-        """
-        初始化渲染器实例
-        :param height: 图像高度
-        :param width: 图像宽度
-        :param init_position: 相机初始位置, 顺序为[x,y,z] (默认[0,0,0])
-        :param init_orient: 相机倾角, 顺序为[pitch,yaw,roll] (默认[0,0,0])
-        :param do_blur: 是否高斯模糊(暂不支持)
-        :param to_ratio: 是否等比例缩放画面.若等比例,调整画面大小时将高度优先
-        :param reflection: 物体表面是否反光
-        """
-        self._height = height
-        self._width = width
-        self._do_blur = do_blur
-        self._to_ratio = to_ratio
-        self._position = init_position
-        self._orient = init_orient
-        self._reflection = reflection
+    PL = normalize(light_point - intersect)
+    PO = normalize(origin - intersect)
+    c=ambient * color
+    l = [obj_test.intersect(intersect + normal * .0001, PL) for obj_test in scene.objects if obj!=obj_test]
+    if not (l and min(l) < np.linalg.norm(light_point - intersect)):
+        c += obj.get_diffuse() * max(np.dot(normal, PL), 0) * color * light_color
+        c += obj.get_specular_c() * max(np.dot(normal, normalize(PL + PO)), 0) ** obj.get_specular_k() * light_color
 
-        self._ratio = self._height / self._width
+    reflect_ray = direction - 2 * np.dot(direction, normal) * normal  # 计算反射光线
+    c += obj.get_reflection() * intersect_color(scene, intersect + normal * .0001, reflect_ray, obj.get_reflection() * intensity, light_point, light_color, ambient)
 
-    def set_dimensions(self, height, width) -> None:
-        """
-        设置渲染结果大小,当to_ratio=True时高度优先
-        :param height: 高度(单位:像素)
-        :param width: 宽度(单位:像素)
-        """
-        # 等比例时高度优先
-        self._height = height
-        if self._to_ratio:
-            self._width = width * self._ratio
-        else:
-            self._width = width
+    return np.clip(c, 0, 1)
 
 
-    def set_blur(self, do_blur = False)->None:
-        """
-        设置是否背景高斯模糊(该功能暂不支持)
-        :param do_blur: 是否模糊
-        """
-
-    def set_to_ratio(self, to_ratio = True)->None:
-        """
-        设置是否等比例调整宽与高
-        :param to_ratio:
-        :return:
-        """
-
-    def set_reflection(self, reflection = True)->None:
-        """
-        设置物体表面是否反光
-        :param reflection:
-        """
-
-    def set_position(self, position :Annotated[npt.NDArray[np.float64],(3,)])->npt.NDArray[np.float64]:
-        """
-        设置相机绝对位置
-        :param position: 相机的绝对位置
-        :return: 当前相机绝对位置
-        """
-        return self._position
-
-    def set_position_delta(self, position :Annotated[npt.NDArray[np.float64],(3,)])->npt.NDArray[np.float64]:
-        """
-        设置相机位置变动
-        :param position: 相机位置变化量
-        :return: 当前相机绝对位置
-        """
-        return self._position
-
-    def set_orientation(self, orient: Annotated[npt.NDArray[np.float64],(3,)])->npt.NDArray[np.float64]:
-        """
-        设置相机绝对倾角
-        :param orient: 相机绝对倾角
-        :return: 当前相机绝对倾角(应与输入相同)
-        """
-        return self._orient
-
-    def render(self)->Image.Image:
-        """
-        渲染最终效果
-        :return: 渲染出的效果图
-        """
-        return Image.new('RGBA', (self._width, self._height), (0, 0, 0, 0))
+def render(scene):
+    height, width = scene.get_dimensions()
+    camera_pos = scene.get_camera_position()
+    camera_ori = scene.get_camera_orientation()
+    img = np.zeros((height, width, 3))
+    ratio = float(width) / float(height)
+    screen = (-1., -1. / ratio + .25, 1., 1. / ratio + .25)
+    R = generate_transpose(camera_ori[0],camera_ori[1],mode='d') # 生成旋转变换矩阵
+    light_point = scene.get_light_point()
+    light_color = scene.get_light_color()
+    ambient = scene.get_ambient()
+    for i, x in enumerate(tqdm(np.linspace(screen[0], screen[2], width))):
+        for j, y in enumerate(np.linspace(screen[1], screen[3], height)):
+            ray_direction = R @ np.array([x, y, (1. if abs(camera_ori[0])<=90 else -1.)])
+            pixel_color = intersect_color(scene, camera_pos, normalize(ray_direction), 1,light_point,light_color,ambient)
+            img[j,i,:]=pixel_color
+    return np.flip(img,0)

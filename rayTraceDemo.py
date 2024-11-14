@@ -99,8 +99,24 @@ def intersect_color(origin, dir, intensity):
 
 w, h = 400, 300     # 屏幕宽高
 # w, h = 200, 150 
-O = np.array([0., 0.35, -2.])   # 摄像机位置
-Q = np.array([1., 0., 0.])      # 摄像机指向
+O = np.array([0., .5, -1.])   # 摄像机位置
+Q = np.array([-30, -10])  # 摄像机指向
+theta = np.radians(Q[0])
+phi = np.radians(Q[1])
+
+# Rotation matrix around the z-axis (for phi)
+R_y = np.array([[np.cos(theta), 0, np.sin(theta)],
+                [0, 1, 0],
+                [-np.sin(theta), 0, np.cos(theta)]])
+
+# Rotation matrix around the y-axis (for theta)
+R_x = np.array([[1,0,0],
+                [0,np.cos(phi),np.sin(phi)],
+                [0,-np.sin(phi),np.cos(phi)]])
+
+# The total rotation matrix is the product of the two rotations
+R = R_y @ R_x  # Apply z-rotation followed by y-rotation
+
 img = np.zeros((h, w, 3))
 r = float(w) / h
 S = (-1., -1. / r + .25, 1., 1. / r + .25)
@@ -108,9 +124,9 @@ S = (-1., -1. / r + .25, 1., 1. / r + .25)
 begin = time.time()
 for i, x in enumerate(tqdm(np.linspace(S[0], S[2], w))):
     for j, y in enumerate(np.linspace(S[1], S[3], h)):
-        Q[: 2] = (x, y)
+        Q_ = R @ np.array([x, y, (1. if abs(theta)<=90 else -1.)])
         # print(Q)
-        img[j, i, :] = intersect_color(O, normalize(Q - O), 1)
+        img[j, i, :] = intersect_color(O, normalize(Q_), 1)
 end = time.time()
 print("Time: %.2f seconds" % (end - begin))
 
