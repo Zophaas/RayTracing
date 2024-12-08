@@ -11,7 +11,7 @@ def normalize(x):
     return x / np.linalg.norm(x)
 
 class Object:
-    def __init__(self, position :List[float], color_type:Literal['mono','gradient','squares'], color_para,
+    def __init__(self, position :List[float], color_type:str, color_para,
                  reflection:float, diffuse: float, specular_c: float, specular_k: int):
         self._position = np.array(position)
         self._color_type = color_type
@@ -80,6 +80,7 @@ class Sphere(Object):
                  reflection=.35, diffuse=1., specular_c=.6, specular_k=50, ):
         super().__init__(position, color_type, color_para, reflection, diffuse, specular_c, specular_k)
         self._radius = radius
+        self._diameter = radius*2
 
 
     def intersect(self, origin, direction):
@@ -99,7 +100,7 @@ class Sphere(Object):
             return self._color
         elif self._color_type == 'map':
             map_type = self._color_para
-            z = point[0]
+            z = (point[0]-self._position[0])/self._diameter + 0.5
             if map_type not in allowed_maps:
                 cmp = cmps[0]
             else:
