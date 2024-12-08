@@ -2,6 +2,7 @@ from typing import List, Literal
 import numpy.typing as npt
 import numpy as np
 from matplotlib import colormaps as cmps
+import helper
 
 white = np.array([.5,.5,.5])
 black = np.array([-.5,-.5,-.5])
@@ -27,12 +28,18 @@ class Object:
     def intersect(self, origin, direction):
         pass
 
+    def intersect_batch(self, origins, directions):
+        pass
+
     def get_normal(self, point):
         pass
 
     def get_color(self, point):
         if self._color_type == 'mono':
             return self._color_para
+
+    def get_color_batch(self, scene, origins, directions, distances):
+        pass
 
     def get_diffuse(self):
         return self._diffuse
@@ -62,6 +69,16 @@ class Plane(Object):
         d = np.dot(self._position - origin, self._normal) / dn  # 交点与射线原点的距离（相似三角形原理）
         return d if d > 0 else np.inf
 
+    def intersect_batch(self, origins, directions):
+        dn = np.einsum('ij,j->i', directions, self._normal)  # Efficient batch dot product
+        # Mask for rays that are parallel to the plane
+        parallel_mask = np.abs(dn) < 1e-6
+        # Compute distances to the plane for each origin
+        d = np.einsum('ij,j->i', self._position - origins, self._normal) / dn  # Batch calculation for distances
+        # Assign np.inf for parallel rays or rays going in the opposite direction
+        d = np.where((d > 0) & ~parallel_mask, d, np.inf)
+        return d
+
     def get_normal(self, point):
         return self._normal
 
@@ -74,6 +91,9 @@ class Plane(Object):
             else:
                 color = black
         return color+white if point[2] > 0 else -color+white     #这几段写的很迷,改之前一定要看清楚
+
+    def get_color_batch(self, scene, directions, origins, distances, ambient):
+        points = origins + directions * distances
 
 class Sphere(Object):
     def __init__(self, position :List[float], radius: float, color_type:Literal['mono','map'], color_para,
@@ -92,6 +112,17 @@ class Sphere(Object):
         q_square = self._radius * self._radius - m_square
         return (l - np.sqrt(q_square)) if q_square >= 0 else np.inf
 
+    def intersect_batch(self, origins, directions):
+        oc = self._position - origins  # Calculate vector from ray origin to sphere center
+        l = helper.single_dot(oc, directions)
+        oc_norms = np.linalg.norm(oc, axis=1)
+        m_squares = oc_norms ** 2 - l ** 2  # Square distance to sphere along the ray
+        q_squares = self._radius ** 2 - m_squares  # Radius squared minus m squared to find the quadratic form
+        # Distance to intersection points
+        distances = np.where(q_squares >= 0, l - np.sqrt(q_squares), np.inf)
+        distances[l < 0] = np.inf
+        return distances
+
     def get_normal(self, point):
         return normalize(point - self._position)
 
@@ -108,6 +139,25 @@ class Sphere(Object):
             t = (np.sin(z * 3) + 1) / 2  # A simple mapping based on the x-coordinate
             return np.array(cmp(t)[:3])
 
+    def get_color_batch(self, scene, directions, origins, distances):
+        intersects = origins + directions * distances[:, None]
+        color = self._color
+        ambient = scene.get_ambient()
+        light_point = scene.get_light_point()
+        light_color = scene.get_light_color()
+        height, width = scene.get_dimensions()
+        c_grid = np.tile(ambient*color,(height*width,1))
+        normals = helper.norm_by_row(intersects - self._position)
+        PL = helper.norm_by_row(light_point - intersects)
+        PO = helper.norm_by_row(origins - intersects)
+        product = helper.single_dot(normals, PL)
+        product[product < 0] = 0
+        c_grid += self._diffuse * product[:,None] * color.T * light_color
+        product = helper.single_dot(normals, helper.norm_by_row(PL + PO))
+        product[product < 0] = 0
+        c_grid += self._specular_c * product[:,None] ** self._specular_k * light_color
+        c_grid[distances == np.inf]=np.array([0,0,0])
+        return np.clip(c_grid.reshape(height,width,3), 0, 1)
 
 
 

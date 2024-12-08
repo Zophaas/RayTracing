@@ -146,5 +146,5 @@ class Scene3d:
         渲染最终效果
         :return: 渲染出的效果图
         """
-        img = Renderer.render(self)
+        img = Renderer.render_batch(self)
         return img
