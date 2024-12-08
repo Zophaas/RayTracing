@@ -13,7 +13,8 @@ import Renderer
 class Scene3d:
     def __init__(self, height:int, width:int, init_camera_position = np.array([0.,.5,-1.]),
                  init_camera_orient = np.array([0.,0.]), light_point=np.array([5., 5., -10.]),
-                 light_color=np.array([1., 1., 1.]) ,ambient = 0.05, do_blur = False, to_ratio = True, reflection = True):
+                 light_color=np.array([1., 1., 1.]) ,ambient = 0.05, do_blur = False, to_ratio = True, reflection = True,
+                 enable_gpu=False):
         """
         初始化渲染器实例
         :param light_point:
@@ -26,6 +27,7 @@ class Scene3d:
         :param to_ratio: 是否等比例缩放画面.若等比例,调整画面大小时将高度优先
         :param reflection: 物体表面是否反光
         """
+
         self._height = height
         self._width = width
         self._do_blur = do_blur
@@ -38,6 +40,7 @@ class Scene3d:
         self._light_point = light_point
         self._light_color = light_color
         self._ambient = ambient
+        self.enable_gpu = enable_gpu
 
     def set_dimensions(self, height, width) -> None:
         """
@@ -77,6 +80,8 @@ class Scene3d:
         :param reflection:
         """
         self._reflection = reflection
+        for obj in self.objects:
+            obj.set_reflection(1 if reflection else 0)
 
     def set_camera_position(self, position:numpy.array)->npt.NDArray[np.float64]:
         """
@@ -108,6 +113,9 @@ class Scene3d:
         self._orient = orient
         return self._orient
 
+    def use_gpu(self):
+        self.enable_gpu = True
+
     def get_camera_orientation(self):
         return self._orient
 
@@ -127,7 +135,7 @@ class Scene3d:
             object3d.set_reflection(0)
         self.objects.append(object3d)
 
-    def add_objects(self, objects:[Objects.Object])->int:
+    def add_objects(self, objects:[Objects.Object]):
         for obj in objects:
             if not obj in self.objects:
                 self.objects.append(obj)

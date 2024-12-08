@@ -1,9 +1,11 @@
 from typing import List, Literal
 import numpy.typing as npt
 import numpy as np
+from matplotlib import colormaps as cmps
 
-white = np.array([1.,1.,1.])
-black = np.array([0.,0.,0.])
+white = np.array([.5,.5,.5])
+black = np.array([-.5,-.5,-.5])
+allowed_maps = list(cmps)
 
 def normalize(x):
     return x / np.linalg.norm(x)
@@ -48,7 +50,7 @@ class Object:
         self._reflection = reflection
 
 class Plane(Object):
-    def __init__(self, position :List[float], normal: List[float], color_type:Literal['mono','gradient'], color_para,
+    def __init__(self, position :List[float], normal: List[float], color_type:Literal['mono','gradient','squares'], color_para,
                  reflection=.15, diffuse=.75, specular_c=.3, specular_k=50, ):
         super().__init__(position, color_type, color_para, reflection, diffuse, specular_c, specular_k)
         self._normal = np.array(normal)
@@ -68,15 +70,17 @@ class Plane(Object):
             return self._color
         elif self._color_type == 'squares':
             if int(point[0] * 2) % 2== int(point[2] * 2) % 2:
-                return white
+                color = white
             else:
-                return black
+                color = black
+        return color+white if point[2] > 0 else -color+white     #这几段写的很迷,改之前一定要看清楚
 
 class Sphere(Object):
-    def __init__(self, position :List[float], radius: float, color_type:Literal['mono','gradient'], color_para,
+    def __init__(self, position :List[float], radius: float, color_type:Literal['mono','map'], color_para,
                  reflection=.35, diffuse=1., specular_c=.6, specular_k=50, ):
         super().__init__(position, color_type, color_para, reflection, diffuse, specular_c, specular_k)
         self._radius = radius
+
 
     def intersect(self, origin, direction):
         oc = self._position - origin
@@ -93,6 +97,18 @@ class Sphere(Object):
     def get_color(self, point):
         if self._color_type == 'mono':
             return self._color
+        elif self._color_type == 'map':
+            map_type = self._color_para
+            z = point[0]
+            if map_type not in allowed_maps:
+                cmp = cmps[0]
+            else:
+                cmp = cmps[map_type]
+            t = (np.sin(z * 3) + 1) / 2  # A simple mapping based on the x-coordinate
+            return np.array(cmp(t)[:3])
+
+
+
 
 
 
