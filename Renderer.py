@@ -96,10 +96,8 @@ def render(scene):
 def render_batch(scene):
     height, width = scene.get_dimensions()
     img = np.zeros((height, width, 3))
-    light_point = scene.get_light_point()
-    light_color = scene.get_light_color()
-    ambient = scene.get_ambient()
     directions = create_ray_grid(scene)
+    intensities = np.ones((directions.shape[0]))
     origins = np.array(scene.get_camera_position())*np.ones((directions.shape[0],1))
     distance_all = []
     distance_all_unshaped = []
@@ -114,7 +112,7 @@ def render_batch(scene):
         distance_all[i] = distances
 
     for i, obj in enumerate(scene.objects):
-        img+=obj.get_color_batch(scene, directions, origins, distance_all_unshaped[i])
+        img+=obj.get_color_batch(scene, directions, origins, distance_all_unshaped[i], intensities)
 
     return np.flip(img, 0)
 

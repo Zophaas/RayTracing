@@ -38,7 +38,7 @@ class Object:
         if self._color_type == 'mono':
             return self._color_para
 
-    def get_color_batch(self, scene, origins, directions, distances):
+    def get_color_batch(self, scene, origins, directions, distances, intensities):
         pass
 
     def get_diffuse(self):
@@ -139,7 +139,7 @@ class Sphere(Object):
             t = (np.sin(z * 3) + 1) / 2  # A simple mapping based on the x-coordinate
             return np.array(cmp(t)[:3])
 
-    def get_color_batch(self, scene, directions, origins, distances):
+    def get_color_batch(self, scene, directions, origins, distances, intensities):
         intersects = origins + directions * distances[:, None]
         color = self._color
         ambient = scene.get_ambient()
@@ -157,6 +157,9 @@ class Sphere(Object):
         product[product < 0] = 0
         c_grid += self._specular_c * product[:,None] ** self._specular_k * light_color
         c_grid[distances == np.inf]=np.array([0,0,0])
+
+        reflect_directions = directions - 2 * helper.single_dot2(normals, helper.single_dot(directions, normals))
+        reflect_intensities = helper.single_dot2(c_grid, intensities)
         return np.clip(c_grid.reshape(height,width,3), 0, 1)
 
 
