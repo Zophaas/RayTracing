@@ -1,4 +1,4 @@
-from typing import Annotated
+# Copyright H.Zhao @ THU
 
 import numpy
 from PIL import Image

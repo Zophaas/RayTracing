@@ -1,3 +1,5 @@
+# Copyright H.Zhao @ THU
+
 import time
 from typing import List, Literal
 import numpy.typing as npt
@@ -97,7 +99,28 @@ class Plane(Object):
         return color+white if point[2] > 0 else -color+white     #这几段写的很迷,改之前一定要看清楚
 
     def get_color_batch(self, scene, directions, origins, distances, ambient):
-        points = origins + directions * distances
+        intersects = origins + directions * distances[:, None]
+        color = self._color
+        ambient = scene.get_ambient()
+        light_point = scene.get_light_point()
+        light_color = scene.get_light_color()
+        height, width = scene.get_dimensions()
+        c_grid = np.tile(ambient * color, (height * width, 1))
+        intersects_d = cuda.to_device(intersects)
+        normals_d = cuda.to_device(np.tile(self._normal,(height*width,1)))
+        PL_d = norm_by_row_d(light_point - intersects)
+        PO_d = norm_by_row_d(origins - intersects)
+        product_d = single_dot_d(normals_d, PL_d)
+        product_d = set_negative_to_zero(product_d)
+        product = product_d.copy_to_host()
+        c_grid += self._diffuse * product * color.T * light_color
+        product_d = single_dot_d(normals_d, norm_by_row_d(add_arrays(PL_d, PO_d)))
+        product_d = set_negative_to_zero(product_d)
+        product = product_d.copy_to_host()
+        c_grid += self._specular_c * product ** self._specular_k * light_color
+        c_grid[distances == np.inf] = np.array([0, 0, 0])
+        c_clipped = np.clip(c_grid.reshape(height, width, 3), 0, 1)
+        return  c_clipped
 
 class Sphere(Object):
     def __init__(self, position :List[float], radius: float, color_type:Literal['mono','map'], color_para,

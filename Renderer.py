@@ -1,6 +1,7 @@
+# Copyright H.Zhao @ THU
+
 import numpy
 import numpy as np
-from numpy.ma.core import zeros_like, transpose
 from tqdm import tqdm
 
 import helper_cuda as helper

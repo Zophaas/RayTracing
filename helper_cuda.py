@@ -1,3 +1,5 @@
+# Copyright H.Zhao @ THU
+
 from numba import cuda
 import numpy as np
 
@@ -92,10 +94,25 @@ def add_arrays(array1_d, array2_d):
     return result_d
 
 @cuda.jit
-def calculate_color(c_grid_d, directions_d, origins_d, distances_d, intensities_d, color, ambient, light_point, light_color):
+def calculate_color_kernel(c_grid_d, directions_d, origins_d, distances_d, intensities_d, color_ambient, light_point, light_color, position):
     i = cuda.grid(1)
     if i<c_grid_d.shape[0]:
-        pass
+        origin = origins_d[i]
+        direction = directions_d[i]
+        distance = distances_d[i]
+        intensity = intensities_d[i]
+        intersect = cuda.device_array(3, dtype=np.float32)
+        for j in range(3):
+            intersect[j] = distance * direction[j] +origin[j]
+
+
+
+def calculate_color(scene, directions, origins, distances, intensities, color, position):
+    height, width = scene.get_dimensions()
+    c_grid_d = cuda.device_array((height*width, 3), dtype=np.float32)
+    ambient_color = color * scene.get_ambient()
+    light_point = scene.get_light_point()
+    light_color = scene.get_light_color()
 
 
 
