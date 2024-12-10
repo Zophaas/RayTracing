@@ -3,7 +3,7 @@ import numpy as np
 from numpy.ma.core import zeros_like, transpose
 from tqdm import tqdm
 
-import helper
+import helper_cuda as helper
 
 
 def normalize(x):
@@ -28,20 +28,11 @@ def generate_transpose(theta:float,phi:float,mode='r')->np.array:
     return R
 
 
-def create_ray_grid(scene):
-    # Unpack ranges
-    height, width = scene.get_dimensions()
-    ratio = float(width) / float(height)
-    camera_pos = scene.get_camera_position()
+
+def enact_transpose(scene):
     camera_ori = scene.get_camera_orientation()
-    # Generate grid of origins
-    screen = (-1., -1. / ratio + .25, 1., 1. / ratio + .25)
+    directions_ori = scene.get_ray_grid()
     R = generate_transpose(camera_ori[0],camera_ori[1],mode='d') # 生成旋转变换矩阵
-    x = np.linspace(screen[0], screen[2], width)
-    y = np.linspace(screen[1], screen[3], height)
-    X, Y = np.meshgrid(x, y)
-    directions_ori = np.row_stack((X.ravel(), Y.ravel(), (np.ones_like(X.ravel()) if abs(camera_ori[0])<=90
-                                                         else -np.ones_like(X.ravel()))))  # z=0 for 2D plane
     directions = np.transpose(np.dot(R, directions_ori))
     directions = helper.norm_by_row(directions)
     return directions
@@ -96,7 +87,7 @@ def render(scene):
 def render_batch(scene):
     height, width = scene.get_dimensions()
     img = np.zeros((height, width, 3))
-    directions = create_ray_grid(scene)
+    directions = enact_transpose(scene)
     intensities = np.ones((directions.shape[0]))
     origins = np.array(scene.get_camera_position())*np.ones((directions.shape[0],1))
     distance_all = []

@@ -15,6 +15,7 @@ plane = Objects.Plane([0., -0.5, 0.], [0., 1., 0.],'squares',[.5,.5,.5])  # å¹³é
 myScene.add_objects([ sphere1, sphere3])
 myScene.set_camera_position([0.,.5,-.5])
 myScene.set_camera_orientation([0,-10])
+myScene.create_ray_grid()
 # myScene.set_reflection(False)
 a = time.time()
 image = myScene.render()

@@ -36,11 +36,12 @@ class Scene3d:
         self._orient = init_camera_orient
         self._reflection = reflection
         self.objects:[Objects.Object] = []
-        self._ratio = self._height / self._width
+        self._ratio = self._width / self._height
         self._light_point = light_point
         self._light_color = light_color
         self._ambient = ambient
         self.enable_gpu = enable_gpu
+        self._rays = None
 
     def set_dimensions(self, height, width) -> None:
         """
@@ -139,6 +140,20 @@ class Scene3d:
         for obj in objects:
             if not obj in self.objects:
                 self.objects.append(obj)
+
+    def create_ray_grid(self):
+        # Unpack ranges
+        # Generate grid of origins
+        screen = (-1., -1. / self._ratio + .25, 1., 1. / self._ratio + .25)
+        x = np.linspace(screen[0], screen[2], self._width)
+        y = np.linspace(screen[1], screen[3], self._height)
+        X, Y = np.meshgrid(x, y)
+        directions_ori = np.row_stack((X.ravel(), Y.ravel(), (np.ones_like(X.ravel()) if abs(self._orient[0]) <= 90
+                                                              else -np.ones_like(X.ravel()))))  # z=0 for 2D plane
+        self._rays = directions_ori
+
+    def get_ray_grid(self):
+        return self._rays
 
 
     def render(self)->Image.Image:

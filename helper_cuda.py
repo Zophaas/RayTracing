@@ -38,12 +38,12 @@ def norm_by_row_core(array_d, result_d):
     i = cuda.grid(1)
     if i < array_d.shape[0]:
         slice_d = array_d[i]
-        if not (np.any(slice_d) or np.all(np.isnan(slice_d))):
-            result_d[i] = np.empty_like(slice_d)
-        else:
-            norm = np.linalg.norm(slice_d)
-            result_d[i] = array_d[i]/norm
-    return result_d
+        norm = 0
+        for j in slice_d:
+            norm += j ** 2
+        norm = norm **0.5
+        for j in range(len(slice_d)):
+            result_d[i,j] = array_d[i,j]/norm
 
 def norm_by_row(A):
     blocks_per_grid = (A.shape[0] + (THREADS_PER_BLOCK - 1)) // THREADS_PER_BLOCK
@@ -57,6 +57,7 @@ def norm_by_row(A):
     C = C_d.copy_to_host()
     return C
 
+
 def norm_by_row_d(A_d):
     blocks_per_grid = (A_d.shape[0] + (THREADS_PER_BLOCK - 1)) // THREADS_PER_BLOCK
     C = np.empty_like(A_d, dtype=np.float32)
@@ -64,7 +65,37 @@ def norm_by_row_d(A_d):
     norm_by_row_core[blocks_per_grid, THREADS_PER_BLOCK](A_d, C_d)
     return C_d
 
+@cuda.jit
+def set_negative_to_zero_core(array_d):
+    i = cuda.grid(1)
+    if i < array_d.shape[0]:
+        if array_d[i,0] < 0.:
+            array_d[i,0] = 0.
 
+def set_negative_to_zero(A_d):
+    blocks_per_grid = (A_d.shape[0] + (THREADS_PER_BLOCK - 1)) // THREADS_PER_BLOCK
+    set_negative_to_zero_core[blocks_per_grid, THREADS_PER_BLOCK](A_d)
+    return A_d
+
+@cuda.jit
+def add_arrays_kernel(array1_d, array2_d, result_d):
+    i = cuda.grid(1)
+    if i < array1_d.shape[0]:
+        for j in range(3):  # since each array has 3 columns
+            result_d[i, j] = array1_d[i, j] + array2_d[i, j]
+
+def add_arrays(array1_d, array2_d):
+    # Ensure input arrays are DeviceNDArray
+    result_d = cuda.device_array_like(array1_d)
+    blocks_per_grid = (array1_d.shape[0] + THREADS_PER_BLOCK - 1) // THREADS_PER_BLOCK
+    add_arrays_kernel[blocks_per_grid, THREADS_PER_BLOCK](array1_d, array2_d, result_d)
+    return result_d
+
+@cuda.jit
+def calculate_color(c_grid_d, directions_d, origins_d, distances_d, intensities_d, color, ambient, light_point, light_color):
+    i = cuda.grid(1)
+    if i<c_grid_d.shape[0]:
+        pass
 
 
 

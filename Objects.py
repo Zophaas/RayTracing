@@ -1,10 +1,11 @@
+import time
 from typing import List, Literal
 import numpy.typing as npt
 import numpy as np
 from matplotlib import colormaps as cmps
 from numba import cuda
-from helper import single_dot, norm_by_row
-#from helper_cuda import norm_by_row, single_dot
+#from helper import single_dot, norm_by_row
+from helper_cuda import norm_by_row, single_dot, norm_by_row_d, single_dot_d, set_negative_to_zero, add_arrays
 
 
 white = np.array([.5,.5,.5])
@@ -143,30 +144,46 @@ class Sphere(Object):
             return np.array(cmp(t)[:3])
 
     def get_color_batch(self, scene, directions, origins, distances, intensities):
+        a=time.time()
         intersects = origins + directions * distances[:, None]
         color = self._color
         ambient = scene.get_ambient()
         light_point = scene.get_light_point()
         light_color = scene.get_light_color()
         height, width = scene.get_dimensions()
-
         c_grid = np.tile(ambient*color,(height*width,1))
-        normals = norm_by_row(intersects - self._position)
-        PL = norm_by_row(light_point - intersects)
-        PO = norm_by_row(origins - intersects)
-        product = single_dot(normals, PL)
-        product[product < 0] = 0
+        intersects_d = cuda.to_device(intersects)
+        # c_grid_d = cuda.to_device(c_grid)
+        print('generate grid: '+str(time.time()-a))
+        a=time.time()
+        normals_d = norm_by_row_d(intersects - self._position)
+        PL_d = norm_by_row_d(light_point - intersects)
+        PO_d = norm_by_row_d(origins - intersects)
+        product_d = single_dot_d(normals_d, PL_d)
+        product_d= set_negative_to_zero(product_d)
+        print('calculation 1: ' + str(time.time() - a))
+        a = time.time()
+        product = product_d.copy_to_host()
+        print('copy 1: ' + str(time.time() - a))
+        a = time.time()
         c_grid += self._diffuse * product * color.T * light_color
-        product = single_dot(normals, norm_by_row(PL + PO))
-        product[product < 0] = 0
+        product_d = single_dot_d(normals_d, norm_by_row_d(add_arrays(PL_d,PO_d)))
+        product_d = set_negative_to_zero(product_d)
+        print('calculation 2: ' + str(time.time() - a))
+        a = time.time()
+        product = product_d.copy_to_host()
+        print('copy 2: ' + str(time.time() - a))
+        a = time.time()
         c_grid += self._specular_c * product ** self._specular_k * light_color
+        # c_grid = c_grid_d.copy_to_host()
         c_grid[distances == np.inf]=np.array([0,0,0])
+        c_clipped = np.clip(c_grid.reshape(height, width, 3), 0, 1)
+        print('calculation 3: ' + str(time.time() - a))
+        a = time.time()
+        #reflect_intensities = c_grid * intensities[:,None]
+        #reflect_directions = directions - 2 * normals * single_dot(directions, normals)
 
-        reflect_intensities = c_grid * intensities[:,None]
-        reflect_directions = directions - 2 * normals * single_dot(directions, normals)
-
-        return np.clip(c_grid.reshape(height,width,3), 0, 1)
-
+        return c_clipped
     def get_color_kernel(self, directions_d, origins_d, distances_d, intensities_d):
         pass
 
