@@ -44,7 +44,7 @@ class Object:
         if self._color_type == 'mono':
             return self._color_para
 
-    def get_color_batch(self, scene, origins, directions, distances, intensities):
+    def get_color_batch(self, scene, origins, directions, distances, intensities, reflected_rays):
         pass
 
     def get_diffuse(self):
@@ -98,7 +98,7 @@ class Plane(Object):
                 color = black
         return color+white if point[2] > 0 else -color+white     #这几段写的很迷,改之前一定要看清楚
 
-    def get_color_batch(self, scene, directions, origins, distances, ambient):
+    def get_color_batch(self, scene, directions, origins, distances, intensities, reflected_rays):
         intersects = origins + directions * distances[:, None]
         color = self._color
         ambient = scene.get_ambient()
@@ -110,17 +110,36 @@ class Plane(Object):
         normals_d = cuda.to_device(np.tile(self._normal,(height*width,1)))
         PL_d = norm_by_row_d(light_point - intersects)
         PO_d = norm_by_row_d(origins - intersects)
+
         product_d = single_dot_d(normals_d, PL_d)
         product_d = set_negative_to_zero(product_d)
         product = product_d.copy_to_host()
+
         c_grid += self._diffuse * product * color.T * light_color
+
         product_d = single_dot_d(normals_d, norm_by_row_d(add_arrays(PL_d, PO_d)))
         product_d = set_negative_to_zero(product_d)
         product = product_d.copy_to_host()
         c_grid += self._specular_c * product ** self._specular_k * light_color
         c_grid[distances == np.inf] = np.array([0, 0, 0])
+        if reflected_rays:
+            c_grid = c_grid * self._reflection
         c_clipped = np.clip(c_grid.reshape(height, width, 3), 0, 1)
-        return  c_clipped
+        normals = normals_d.copy_to_host()
+        reflect_intensities = self._reflection * intensities
+        reflect_directions = directions - 2 * normals * single_dot(directions, normals_d.copy_to_host())
+
+        reflect_intensities[distances == np.inf] = 0
+        reflect_directions[distances == np.inf] = np.array([0,0,0])
+
+        reflect_intensities[distances == np.inf] = 0
+        reflect_directions[distances == np.inf] = np.array([0,0,0])
+        reflect_intensities[distances == -np.inf] = 0
+        reflect_directions[distances == -np.inf] = np.array([0,0,0])
+        intersects[distances == np.inf] = np.array([0,0,0])
+        intersects[distances == -np.inf] = np.array([0,0,0])
+
+        return  c_clipped, intersects, reflect_directions, reflect_intensities
 
 class Sphere(Object):
     def __init__(self, position :List[float], radius: float, color_type:Literal['mono','map'], color_para,
@@ -166,7 +185,7 @@ class Sphere(Object):
             t = (np.sin(z * 3) + 1) / 2  # A simple mapping based on the x-coordinate
             return np.array(cmp(t)[:3])
 
-    def get_color_batch(self, scene, directions, origins, distances, intensities):
+    def get_color_batch(self, scene, directions, origins, distances, intensities, reflected_rays):
         a=time.time()
         intersects = origins + directions * distances[:, None]
         color = self._color
@@ -200,13 +219,24 @@ class Sphere(Object):
         c_grid += self._specular_c * product ** self._specular_k * light_color
         # c_grid = c_grid_d.copy_to_host()
         c_grid[distances == np.inf]=np.array([0,0,0])
+        if reflected_rays:
+            c_grid = c_grid * self._reflection
         c_clipped = np.clip(c_grid.reshape(height, width, 3), 0, 1)
         print('calculation 3: ' + str(time.time() - a))
         a = time.time()
-        #reflect_intensities = c_grid * intensities[:,None]
-        #reflect_directions = directions - 2 * normals * single_dot(directions, normals)
+        normals = normals_d.copy_to_host()
+        reflect_intensities = self._reflection * intensities
+        reflect_directions = directions - 2 * normals * single_dot(directions, normals_d.copy_to_host())
 
-        return c_clipped
+        reflect_intensities[distances == np.inf] = 0
+        reflect_directions[distances == np.inf] = np.array([0,0,0])
+        reflect_intensities[distances == -np.inf] = 0
+        reflect_directions[distances == -np.inf] = np.array([0,0,0])
+        intersects[distances == np.inf] = np.array([0,0,0])
+        intersects[distances == -np.inf] = np.array([0,0,0])
+
+        return  c_clipped, intersects, reflect_directions, reflect_intensities
+
     def get_color_kernel(self, directions_d, origins_d, distances_d, intensities_d):
         pass
 

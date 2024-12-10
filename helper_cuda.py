@@ -2,6 +2,7 @@
 
 from numba import cuda
 import numpy as np
+from numba.cuda.cudadrv.devicearray import DeviceNDArray
 
 THREADS_PER_BLOCK = 256
 
@@ -94,7 +95,19 @@ def add_arrays(array1_d, array2_d):
     return result_d
 
 @cuda.jit
-def calculate_color_kernel(c_grid_d, directions_d, origins_d, distances_d, intensities_d, color_ambient, light_point, light_color, position):
+def normalize_a(a, c):
+    norm = 0
+    for j in range(3):
+        norm += a[j] ** 2
+    norm = norm ** 0.5
+    for j in range(3):
+        c[j] = a[j]/ norm
+
+@cuda.jit
+def calculate_color_sphere_kernel(c_grid_d: DeviceNDArray, directions_d: DeviceNDArray, origins_d: DeviceNDArray,
+                                  distances_d: DeviceNDArray, intensities_d: DeviceNDArray, color_d: DeviceNDArray, ambient: float,
+                                  light_point_d: DeviceNDArray, light_color_d: DeviceNDArray, position: DeviceNDArray,
+                                  diffuse: float, specular_c: float, specular_k: float):
     i = cuda.grid(1)
     if i<c_grid_d.shape[0]:
         origin = origins_d[i]
@@ -102,12 +115,38 @@ def calculate_color_kernel(c_grid_d, directions_d, origins_d, distances_d, inten
         distance = distances_d[i]
         intensity = intensities_d[i]
         intersect = cuda.device_array(3, dtype=np.float32)
-        for j in range(3):
-            intersect[j] = distance * direction[j] +origin[j]
+        # eliminate inf terms
+        if distance == np.inf:
+            for j in range(3):
+                c_grid_d[i][j]=0.
+        else:
+            # calculate intersect point
+            for j in range(3):
+                intersect[j] = distance[i] * direction[j] +origin[j]
+            #calculate normal vector
+            normal = cuda.device_array(3, dtype=np.float32)
+            normalize_a((intersect - position),normal)
+            #calculate PL
+            PL = cuda.device_array(3, dtype=np.float32)
+            product = cuda.device_array(3, dtype=np.float32)
+            for j in range(3):
+                product[j] = light_point_d[j] - intersect[j]
+            normalize_a(product, PL)
+            PO = cuda.device_array(3, dtype=np.float32)
+            for j in range(3):
+                product[j] = light_point_d[j] - intersect[j]
+            normalize_a(product, PO)
+            dot_product = 0
+            for j in range(3):  # Compute dot product
+                dot_product += normal[j] * PL[j]
+            if dot_product<0:
+                dot_product = 0
+            for j in range(3):
+                c_grid_d[i][j] += diffuse * dot_product * light_color_d[j] * color_d[j]
 
 
 
-def calculate_color(scene, directions, origins, distances, intensities, color, position):
+def calculate_color_sphere(scene, directions, origins, distances, intensities, color, position):
     height, width = scene.get_dimensions()
     c_grid_d = cuda.device_array((height*width, 3), dtype=np.float32)
     ambient_color = color * scene.get_ambient()

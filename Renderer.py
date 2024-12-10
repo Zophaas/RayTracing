@@ -91,21 +91,35 @@ def render_batch(scene):
     directions = enact_transpose(scene)
     intensities = np.ones((directions.shape[0]))
     origins = np.array(scene.get_camera_position())*np.ones((directions.shape[0],1))
-    distance_all = []
-    distance_all_unshaped = []
-    for obj in scene.objects:
-        distances_unshaped = (obj.intersect_batch(origins, directions))
-        distances = distances_unshaped.reshape(height,width)
-        distance_all.append(distances)
-        distance_all_unshaped.append(distances_unshaped)
-    min_distance = np.min(distance_all, axis=0)
-    for i, distances in enumerate(distance_all):
-        distances[distances > min_distance] = np.inf
-        distance_all[i] = distances
+    reflect_rays = False
+    while not np.all(intensities < 1e-6):
+        distance_all = []
+        distance_all_unshaped = []
+        for obj in scene.objects:
+            distances_unshaped = (obj.intersect_batch(origins, directions))
+            distances = distances_unshaped.reshape(height,width)
+            distance_all.append(distances)
+            distance_all_unshaped.append(distances_unshaped)
+        min_distance = np.min(distance_all, axis=0)
+        for i, distances in enumerate(distance_all):
+            distances[distances > min_distance] = np.inf
+            distance_all[i] = distances
 
-    for i, obj in enumerate(scene.objects):
-        img+=obj.get_color_batch(scene, directions, origins, distance_all_unshaped[i], intensities)
+        intersects_collected = np.zeros_like(origins)
+        intensities_collected = np.zeros_like(intensities)
+        directions_collected = np.zeros_like(directions)
 
+        for i, obj in enumerate(scene.objects):
+            colors_i, intersects_i, directions_i, intensities_i = obj.get_color_batch(scene, directions, origins, distance_all_unshaped[i], intensities, reflect_rays)
+            img+=colors_i
+            intersects_collected += intersects_i
+            directions_collected += directions_i
+            intensities_collected+= intensities_i
+
+        origins = intersects_collected
+        directions = directions_collected
+        intensities = intensities_collected
+        reflect_rays = True
     return np.flip(img, 0)
 
 
